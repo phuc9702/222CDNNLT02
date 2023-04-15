@@ -1,10 +1,8 @@
-CREATE TABLE restaurants (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(255) NOT NULL,
-  address VARCHAR(255) NOT NULL,
-  city VARCHAR(255) NOT NULL,
-  phone VARCHAR(20),
-  rating DECIMAL(3, 2),
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+create database foody_db;
+
+CREATE TABLE foods (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255),
+    description TEXT,
+    image_url VARCHAR(255)
 );

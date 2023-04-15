@@ -1,94 +1,89 @@
 from fastapi import FastAPI
-from fastapi import HTTPException
-from fastapi import Response
-from fastapi import status
-from fastapi import Query
 from pydantic import BaseModel
-from typing import List
-from fastapi.responses import HTMLResponse
+from bs4 import BeautifulSoup
+import requests
 import mysql.connector
 
+# Định nghĩa mô hình dữ liệu cho món ăn
+class Food(BaseModel):
+    name: str
+    description: str
+    image_url: str
 
+# Khởi tạo ứng dụng FastAPI
 app = FastAPI()
 
-# Kết nối tới database
-db = mysql.connector.connect(
+# Thiết lập kết nối đến cơ sở dữ liệu MySQL
+mydb = mysql.connector.connect(
     host="127.0.0.1",
-    user="root",  # Thay thế bằng tên người dùng của bạn
-    password="123456",  # Thay thế bằng mật khẩu của bạn
-    database="foody_db"  # Thay thế bằng tên database của bạn
+    user="root",
+    password="123456",
+    database="foody_db"
 )
-cursor = db.cursor()
+mycursor = mydb.cursor()
+
+# Tìm kiếm món ăn dựa trên tên
+@app.get("Home/{food_name}")
+async def search_food(food_name: str):
+    query = "SELECT * FROM foods WHERE name LIKE %s"
+    values = ('%' + food_name + '%',)
+    mycursor.execute(query, values)
+    result = mycursor.fetchall()
+    foods = []
+    for row in result:
+        food = Food(name=row[1], description=row[2], image_url=row[3])
+        foods.append(food)
+    return {"message": f"Search results for food name '{food_name}'", "data": foods}
+
+# Cào dữ liệu từ trang web foody.vn và lưu vào cơ sở dữ liệu MySQL
+@app.get("/crawl")
+async def crawl_foody():
+    # Gửi yêu cầu GET đến trang web foody.vn
+    response = requests.get("https://www.foody.vn/")
+    soup = BeautifulSoup(response.content, 'html.parser')
+
+    # Tìm kiếm các phần tử HTML chứa thông tin về món ăn
+    foods = []
+    for food_item in soup.find_all("div", class_="row-item"):
+        name = food_item.find("h2", class_="title").text.strip()
+        description = food_item.find("p", class_="address").text.strip()
+        image_url = food_item.find("img")["src"]
+        food = Food(name=name, description=description, image_url=image_url)
+        foods.append(food)
+
+        # Lưu thông tin vào cơ sở dữ liệu MySQL
+        query = "INSERT INTO foods (name, description, image_url) VALUES (%s, %s, %s)"
+        values = (food.name, food.description, food.image_url)
+        mycursor.execute(query, values)
+        mydb.commit()
+
+    return {"message": "Data crawled and saved successfully", "data": foods}
 
 
-# Model dùng để định nghĩa dữ liệu đầu vào cho API
-class Restaurant(BaseModel):
-    id: int
-    name: str
-    address: str
-    city: str
-    phone:str
-    rating: float
+# Cập nhật thông tin của một món ăn
+@app.put("/foods/{food_id}")
+async def update_food(food_id: int, food: Food):
+    query = "UPDATE foods SET name = %s, description = %s, image_url = %s WHERE id = %s"
+    values = (food.name, food.description, food.image_url, food_id)
+    mycursor.execute(query, values)
+    mydb.commit()
+@app.put("/foods/{food_id}")
+async def update_food(food_id: int, food: Food):
+    query = "UPDATE foods SET name = %s, description = %s, image_url = %s WHERE id = %s"
+    values = (food.name, food.description, food.image_url, food_id)
+    mycursor.execute(query, values)
+    mydb.commit()
+    return {"message": f"Food with id {food_id} updated successfully"}
 
+#Xóa một món ăn
+@app.delete("/foods/{food_id}")
+async def delete_food(food_id: int):
+    query = "DELETE FROM foods WHERE id = %s"
+    values = (food_id,)
+    mycursor.execute(query, values)
+    mydb.commit()
+    return {"message": f"Food with id {food_id} deleted successfully"}
+if __name__ == "__main__":
 
-# Route hiển thị trang chủ với search box
-@app.get("/", response_class=HTMLResponse)
-def home():
-    html = """
-        <html>
-            <head>
-                <title>Foody.vn</title>
-            </head>
-            <body>
-                <h1>Search for restaurants</h1>
-                <form action="/restaurants" method="get">
-                    <input type="text" name="query" placeholder="Enter restaurant name...">
-                    <input type="submit" value="Search">
-                </form>
-            </body>
-        </html>
-    """
-    return html
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 
-
-# Route lấy danh sách nhà hàng dựa trên query từ search box
-@app.get("/restaurants", response_model=List[Restaurant])
-def search_restaurants(query: str = Query(...)):
-    cursor.execute(f"SELECT * FROM restaurants WHERE name LIKE '%{query}%'")
-    results = cursor.fetchall()
-    if not results:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No restaurants found")
-    restaurants = []
-    for row in results:
-        restaurant = Restaurant(id=row[0], name=row[1], address=row[2], rating=row[3])
-        restaurants.append(restaurant)
-    return restaurants
-
-# Route cập nhật thông tin của một nhà hàng
-@app.put("/restaurants/{restaurant_id}", response_model=Restaurant)
-def update_restaurant(restaurant_id: int, restaurant: Restaurant):
-    cursor.execute(
-        f"UPDATE restaurants SET name='{restaurant.name}', address='{restaurant.address}', rating={restaurant.rating} WHERE id={restaurant_id}"
-    )
-    db.commit()
-    cursor.execute(f"SELECT * FROM restaurants WHERE id={restaurant_id}")
-    row = cursor.fetchone()
-    if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
-    updated_restaurant = Restaurant(id=row[0], name=row[1], address=row[2], rating=row[3])
-    return updated_restaurant
-
-@app.delete("/restaurants/{restaurant_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_restaurant(restaurant_id: int):
-    cursor.execute(f"SELECT * FROM restaurants WHERE id={restaurant_id}")
-    row = cursor.fetchone()
-    if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
-        cursor.execute(f"DELETE FROM restaurants WHERE id={restaurant_id}")
-        db.commit()
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-@app.on_event("shutdown")
-def shutdown_event():
-    cursor.close()
-    db.close()
