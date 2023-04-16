@@ -1,46 +1,51 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
 from bs4 import BeautifulSoup
 import requests
 import mysql.connector
-
-# Định nghĩa mô hình dữ liệu cho món ăn
-class Food(BaseModel):
-    name: str
-    description: str
-    image_url: str
+from mysql.connector import Error
+from fastapi import FastAPI
+import uvicorn
+import pymysql
 
 # Khởi tạo ứng dụng FastAPI
 app = FastAPI()
 
-# Thiết lập kết nối đến cơ sở dữ liệu MySQL
-mydb = mysql.connector.connect(
-    host="127.0.0.1",
-    user="root",
-    password="123456",
-    database="foody_db"
+# Kết nối tới cơ sở dữ liệu MySQL
+# Thiết lập kết nối
+# Thiết lập kết nối
+mydb = pymysql.connect(
+  host="127.0.0.1",
+  user="root",
+  password="123456",
+  database="foody_db"
 )
+
+# Tạo đối tượng cursor
 mycursor = mydb.cursor()
 
-# Tìm kiếm món ăn dựa trên tên
-@app.get("Home/{food_name}")
-async def search_food(food_name: str):
-    query = "SELECT * FROM foods WHERE name LIKE %s"
-    values = ('%' + food_name + '%',)
-    mycursor.execute(query, values)
-    result = mycursor.fetchall()
-    foods = []
-    for row in result:
-        food = Food(name=row[1], description=row[2], image_url=row[3])
-        foods.append(food)
-    return {"message": f"Search results for food name '{food_name}'", "data": foods}
+# Thực hiện các thao tác CRUD
+# Ví dụ: Thực hiện lệnh SELECT
+mycursor.execute("SELECT * FROM foods")
+results = mycursor.fetchall()
+for row in results:
+  print(row)
+# Khai báo model cho đối tượng Food
+class Food:
+    def __init__(self, name, description, image_url):
+        self.name = name
+        self.description = description
+        self.image_url = image_url
 
-# Cào dữ liệu từ trang web foody.vn và lưu vào cơ sở dữ liệu MySQL
+# Hàm cào dữ liệu từ trang web và lưu vào cơ sở dữ liệu MySQL
 @app.get("/crawl")
 async def crawl_foody():
     # Gửi yêu cầu GET đến trang web foody.vn
     response = requests.get("https://www.foody.vn/")
     soup = BeautifulSoup(response.content, 'html.parser')
+
+    # Xóa dữ liệu cũ trong cơ sở dữ liệu
+    query = "DELETE FROM foods"
+    mycursor.execute(query)
+    mydb.commit()
 
     # Tìm kiếm các phần tử HTML chứa thông tin về món ăn
     foods = []
@@ -59,31 +64,21 @@ async def crawl_foody():
 
     return {"message": "Data crawled and saved successfully", "data": foods}
 
-
-# Cập nhật thông tin của một món ăn
-@app.put("/foods/{food_id}")
-async def update_food(food_id: int, food: Food):
-    query = "UPDATE foods SET name = %s, description = %s, image_url = %s WHERE id = %s"
-    values = (food.name, food.description, food.image_url, food_id)
+# Hàm tìm kiếm dữ liệu theo từ khóa trên trang chủ
+@app.get("/")
+async def search_foody(keyword: str):
+    # Tìm kiếm dữ liệu trong cơ sở dữ liệu MySQL
+    query = "SELECT * FROM foods WHERE name LIKE %s OR description LIKE %s"
+    values = ("%" + keyword + "%", "%" + keyword + "%")
     mycursor.execute(query, values)
-    mydb.commit()
-@app.put("/foods/{food_id}")
-async def update_food(food_id: int, food: Food):
-    query = "UPDATE foods SET name = %s, description = %s, image_url = %s WHERE id = %s"
-    values = (food.name, food.description, food.image_url, food_id)
-    mycursor.execute(query, values)
-    mydb.commit()
-    return {"message": f"Food with id {food_id} updated successfully"}
+    result = mycursor.fetchall()
 
-#Xóa một món ăn
-@app.delete("/foods/{food_id}")
-async def delete_food(food_id: int):
-    query = "DELETE FROM foods WHERE id = %s"
-    values = (food_id,)
-    mycursor.execute(query, values)
-    mydb.commit()
-    return {"message": f"Food with id {food_id} deleted successfully"}
-if __name__ == "__main__":
+    # Chuyển kết quả thành đối tượng Food và trả về dữ liệu dưới dạng JSON
+    foods = []
+    for item in result:
+        food = Food(name=item[1], description=item[2], image_url=item[3])
+        foods.append(food)
+        return {"message": "Search results", "data": foods}
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
+if __name__ == "main":
+    uvicorn.run(app, host="localhost", port=8000)
