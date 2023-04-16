@@ -28,18 +28,19 @@ mycursor.execute("SELECT * FROM foods")
 results = mycursor.fetchall()
 for row in results:
   print(row)
+  
 # Khai báo model cho đối tượng Food
 class Food:
-    def __init__(self, name, description, image_url):
+    def __init__(self, name, address):
         self.name = name
-        self.description = description
-        self.image_url = image_url
+        self.address = address
+  
 
 # Hàm cào dữ liệu từ trang web và lưu vào cơ sở dữ liệu MySQL
 @app.get("/crawl")
 async def crawl_foody():
     # Gửi yêu cầu GET đến trang web foody.vn
-    response = requests.get("https://www.foody.vn/")
+    response = requests.get("https://www.foody.vn/da-nang")
     soup = BeautifulSoup(response.content, 'html.parser')
 
     # Xóa dữ liệu cũ trong cơ sở dữ liệu
@@ -49,16 +50,15 @@ async def crawl_foody():
 
     # Tìm kiếm các phần tử HTML chứa thông tin về món ăn
     foods = []
-    for food_item in soup.find_all("div", class_="row-item"):
-        name = food_item.find("h2", class_="title").text.strip()
-        description = food_item.find("p", class_="address").text.strip()
-        image_url = food_item.find("img")["src"]
-        food = Food(name=name, description=description, image_url=image_url)
+    for food_item in soup.find_all("li", class_="item in ListItem.items"):
+        name = food_item.find("div", class_="name limit-text").text.strip()
+        address = food_item.find("div", class_="address limit-text").text.strip()
+        food = Food(name=name, address=address )
         foods.append(food)
 
         # Lưu thông tin vào cơ sở dữ liệu MySQL
-        query = "INSERT INTO foods (name, description, image_url) VALUES (%s, %s, %s)"
-        values = (food.name, food.description, food.image_url)
+        query = "INSERT INTO foods (name, address, ) VALUES (%s, %s)"
+        values = (food.name, food.description)
         mycursor.execute(query, values)
         mydb.commit()
 
@@ -68,7 +68,7 @@ async def crawl_foody():
 @app.get("/")
 async def search_foody(keyword: str):
     # Tìm kiếm dữ liệu trong cơ sở dữ liệu MySQL
-    query = "SELECT * FROM foods WHERE name LIKE %s OR description LIKE %s"
+    query = "SELECT * FROM foods WHERE name LIKE %s OR address LIKE %s"
     values = ("%" + keyword + "%", "%" + keyword + "%")
     mycursor.execute(query, values)
     result = mycursor.fetchall()
@@ -76,9 +76,11 @@ async def search_foody(keyword: str):
     # Chuyển kết quả thành đối tượng Food và trả về dữ liệu dưới dạng JSON
     foods = []
     for item in result:
-        food = Food(name=item[1], description=item[2], image_url=item[3])
+        food = Food(name=item[1], address=item[2])
         foods.append(food)
-        return {"message": "Search results", "data": foods}
+#Tiếp tục hàm tìm kiếm dữ liệu theo từ khóa trên trang chủ
+    return {"message": "Search result for keyword: {}".format(keyword), "data": foods}
 
-if __name__ == "main":
-    uvicorn.run(app, host="localhost", port=8000)
+if __name__ == "__main__":
+# Chạy ứng dụng FastAPI bằng giao thức Uvicorn trên cổng 8000
+    uvicorn.run(app, host="0.0.0.0", port=8000)
